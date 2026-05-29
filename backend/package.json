@@ -1,0 +1,16 @@
+{
+  "name": "study-tracker-backend",
+  "version": "0.1.0",
+  "description": "Study time tracker backend",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "pg": "^8.13.0",
+    "cors": "^2.8.5"
+  }
+}
