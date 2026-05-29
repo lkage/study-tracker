@@ -13,10 +13,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    # 외부 노출 안 함 (api 컨테이너에서만 접근)
 
   api:
-    build: ./backend
+    image: lkage/study-tracker-api:latest
     restart: unless-stopped
     depends_on:
       db:
@@ -27,7 +26,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET: ${JWT_SECRET}
     ports:
-      - "127.0.0.1:3000:3000"   # 호스트의 localhost에만 바인딩
+      - "127.0.0.1:3000:3000"
 
 volumes:
   db-data:
