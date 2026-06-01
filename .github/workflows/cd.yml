@@ -10,19 +10,26 @@ jobs:
   deploy:
     # CI가 성공한 경우에만 실행
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     steps:
-      - name: Deploy to OCI
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.OCI_HOST }}
-          username: ${{ secrets.OCI_USER }}
-          key: ${{ secrets.OCI_SSH_KEY }}
-          script: |
-            cd ~/study-tracker
-            git pull origin main
-            docker compose pull
-            docker compose up -d
-            docker image prune -f
-            echo "✅ Deploy complete"
+      - name: Pull latest code
+        working-directory: /home/ubuntu/study-tracker
+        run: git pull origin main
+
+      - name: Pull latest image
+        working-directory: /home/ubuntu/study-tracker
+        run: docker compose pull
+
+      - name: Restart containers
+        working-directory: /home/ubuntu/study-tracker
+        run: docker compose up -d
+
+      - name: Clean up old images
+        run: docker image prune -f
+
+      - name: Verify health
+        run: |
+          sleep 5
+          curl -f http://localhost:3000/health || exit 1
+          echo "✅ Deploy verified"
