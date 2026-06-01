@@ -59,3 +59,4 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/study-tracker-api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
