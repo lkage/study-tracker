@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/* 글로벌 스타일 */
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  background-color: #f9fafb;
+  color: #111827;
+}
