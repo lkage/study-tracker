@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { pool } from './lib/db.js';
 import authRouter from './routes/auth.js';
+import subjectsRouter from './routes/subjects.js';
+import sessionsRouter from './routes/sessions.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -11,7 +13,6 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
-// 헬스체크
 app.get('/health', async (req, res) => {
   try {
     const result = await pool.query('SELECT NOW() as now');
@@ -29,10 +30,10 @@ app.get('/', (req, res) => {
   res.json({ message: 'Study Tracker API' });
 });
 
-// 인증 라우터 마운트
 app.use('/auth', authRouter);
+app.use('/subjects', subjectsRouter);
+app.use('/sessions', sessionsRouter);
 
-// 404 핸들러
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
