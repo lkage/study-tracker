@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
-/* 글로벌 스타일 */
+/* 전체 글자 크기 25% 증가 */
+html {
+  font-size: 22px;
+}
+
 html, body, #root {
   height: 100%;
 }
@@ -9,4 +13,13 @@ body {
   font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   background-color: #f9fafb;
   color: #111827;
+}
+
+@keyframes slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.2s ease-out;
 }
