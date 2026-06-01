@@ -3,14 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { useSubjectsStore } from '../store/subjects.js';
 import { listPlans, upsertPlan, deletePlan, reorderPlans } from '../api/plans.js';
 import { listSessions } from '../api/sessions.js';
+import { useTimerStore } from '../store/timer.js';
 import { formatDuration, formatDateKorean, toDateString } from '../utils/time.js';
 import InlineTimeEdit from './InlineTimeEdit.jsx';
 import PlanAddModal from './PlanAddModal.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
 
-export default function DayPanel({ selectedDate, onDataChange }) {
+export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 }) {
   const navigate = useNavigate();
   const { subjects, fetchAll: fetchSubjects } = useSubjectsStore();
+  const timerState = useTimerStore((s) => s.state);
+  const startTimer = useTimerStore((s) => s.start);
 
   const [plans, setPlans] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -35,11 +38,16 @@ export default function DayPanel({ selectedDate, onDataChange }) {
   const loadData = async () => {
     setLoading(true);
     try {
+      // 로컬 시간 기준 그 날 00:00 ~ 다음날 00:00 을 UTC로 변환해서 쿼리
+      const dayStart = new Date(dateStr + 'T00:00:00');
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
       const [plansRes, sessionsRes] = await Promise.all([
         listPlans({ date: dateStr }),
         listSessions({
-          from: `${dateStr}T00:00:00.000Z`,
-          to: nextDayIso(dateStr),
+          from: dayStart.toISOString(),
+          to: dayEnd.toISOString(),
         }),
       ]);
       setPlans(plansRes.data.plans);
@@ -51,23 +59,18 @@ export default function DayPanel({ selectedDate, onDataChange }) {
     }
   };
 
-  useEffect(() => {
-    fetchSubjects();
-  }, [fetchSubjects]);
-
+  useEffect(() => { fetchSubjects(); }, [fetchSubjects]);
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateStr]);
+  }, [dateStr, refreshKey]);
 
-  // 집계
   const actualBySub = {};
   sessions.forEach((s) => {
     actualBySub[s.subject_id] = (actualBySub[s.subject_id] || 0) + s.duration_sec;
   });
   const planSet = new Set(plans.map((p) => p.subject_id));
 
-  // 표시 행: plan은 display_order(서버 정렬) 순, 그 뒤에 session만 있는 행
   const planRows = plans.map((p) => ({
     subject_id: p.subject_id,
     name: p.subject_name,
@@ -96,14 +99,11 @@ export default function DayPanel({ selectedDate, onDataChange }) {
 
   const displayRows = [...planRows, ...sessionOnlyRows];
 
-  // plan 행끼리 swap → 서버에 일괄 전송
   const movePlan = async (planIndex, direction) => {
     const targetIdx = planIndex + direction;
     if (targetIdx < 0 || targetIdx >= planRows.length) return;
-
     const newOrder = planRows.map((r) => r.subject_id);
     [newOrder[planIndex], newOrder[targetIdx]] = [newOrder[targetIdx], newOrder[planIndex]];
-
     try {
       await reorderPlans(dateStr, newOrder);
       await loadData();
@@ -123,12 +123,24 @@ export default function DayPanel({ selectedDate, onDataChange }) {
     onDataChange?.();
   };
 
-  const handleStart = (subjectId) => {
-    alert(`타이머 시작 (subject_id=${subjectId}) — 5단계에서 구현됩니다`);
+  const handleStart = (row) => {
+    if (timerState) {
+      if (confirm('이미 진행 중인 타이머가 있습니다. 그쪽으로 이동하시겠습니까?')) {
+        navigate('/timer');
+      }
+      return;
+    }
+    startTimer(
+      { id: row.subject_id, name: row.name, color: row.color },
+      row.target_sec,
+      row.actual_sec
+    );
+    navigate('/timer');
   };
 
   const handleStartAll = () => {
-    alert('오늘 학습 시작 — 첫 plan부터 순차 타이머. 5단계에서 구현됩니다.');
+    if (planRows.length === 0) return;
+    handleStart(planRows[0]);
   };
 
   const handleCopyToToday = async () => {
@@ -149,7 +161,6 @@ export default function DayPanel({ selectedDate, onDataChange }) {
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200">
-      {/* 헤더 */}
       <div className="p-4 border-b border-gray-100">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -247,23 +258,17 @@ export default function DayPanel({ selectedDate, onDataChange }) {
                           onClick={() => movePlan(planIndex, -1)}
                           disabled={planIndex === 0}
                           className="px-1.5 py-0.5 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-30 disabled:hover:bg-gray-100"
-                          aria-label="위로"
-                        >
-                          ↑
-                        </button>
+                        >↑</button>
                         <button
                           onClick={() => movePlan(planIndex, 1)}
                           disabled={planIndex === planRows.length - 1}
                           className="px-1.5 py-0.5 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-30 disabled:hover:bg-gray-100"
-                          aria-label="아래로"
-                        >
-                          ↓
-                        </button>
+                        >↓</button>
                       </div>
                     ) : (
                       !reorderMode && isToday && row.hasPlan && (
                         <button
-                          onClick={() => handleStart(row.subject_id)}
+                          onClick={() => handleStart(row)}
                           className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
                         >
                           시작
@@ -351,10 +356,4 @@ export default function DayPanel({ selectedDate, onDataChange }) {
       )}
     </div>
   );
-}
-
-function nextDayIso(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00.000Z');
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString();
 }

@@ -3,7 +3,6 @@ import { listSessions } from '../api/sessions.js';
 import { listPlans } from '../api/plans.js';
 import { toDateString } from '../utils/time.js';
 
-// 학습량별 배경색 (인라인 style로 확실하게)
 const INTENSITY_BG = ['#ffffff', '#eff6ff', '#dbeafe', '#bfdbfe', '#93c5fd'];
 
 export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey = 0 }) {
@@ -22,7 +21,6 @@ export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey =
   const monthStart = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
   const monthEnd = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1);
 
-  // 데이터 로드
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -32,8 +30,8 @@ export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey =
         const toStr = toDateString(monthEnd);
         const [sRes, pRes] = await Promise.all([
           listSessions({
-            from: `${fromStr}T00:00:00.000Z`,
-            to: `${toStr}T00:00:00.000Z`,
+            from: monthStart.toISOString(),
+            to: monthEnd.toISOString(),
           }),
           listPlans({ from: fromStr, to: toStr }),
         ]);
@@ -52,14 +50,17 @@ export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMonth.getTime(), refreshKey]);
 
-  // 일별 집계
   const dailyData = useMemo(() => {
     const map = {};
     const getOrCreate = (dateStr, subjectId, name, color) => {
       if (!map[dateStr]) map[dateStr] = { totalSec: 0, subjects: [] };
       let entry = map[dateStr].subjects.find((x) => x.id === subjectId);
       if (!entry) {
-        entry = { id: subjectId, name, color, hasSession: false, hasPlan: false };
+        entry = {
+          id: subjectId, name, color,
+          hasSession: false, hasPlan: false,
+          displayOrder: Infinity,
+        };
         map[dateStr].subjects.push(entry);
       }
       return entry;
@@ -76,12 +77,15 @@ export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey =
       const dateStr = p.plan_date.substring(0, 10);
       const entry = getOrCreate(dateStr, p.subject_id, p.subject_name, p.subject_color);
       entry.hasPlan = true;
+      entry.displayOrder = p.display_order;
     });
 
+    // 정렬: plan 있는 게 먼저, plan 행끼리는 display_order, 나머지는 이름순
     Object.values(map).forEach((d) => {
       d.subjects.sort((a, b) => {
-        if (a.hasSession && !b.hasSession) return -1;
-        if (!a.hasSession && b.hasSession) return 1;
+        if (a.hasPlan && !b.hasPlan) return -1;
+        if (!a.hasPlan && b.hasPlan) return 1;
+        if (a.hasPlan && b.hasPlan) return a.displayOrder - b.displayOrder;
         return a.name.localeCompare(b.name);
       });
     });
@@ -121,7 +125,6 @@ export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey =
     onSelectDate(now);
   };
 
-  // 날짜를 delta일 이동. viewMonth가 다른 달이면 자동 변경
   const navigateDays = (delta) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + delta);
@@ -131,7 +134,6 @@ export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey =
     onSelectDate(d);
   };
 
-  // 휠로 월 변경 (throttle 300ms, native 등록으로 preventDefault)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -148,10 +150,8 @@ export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMonth]);
 
-  // 키보드 단축키
   useEffect(() => {
     const handler = (e) => {
-      // input/textarea에서 입력 중이면 무시
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
@@ -169,7 +169,6 @@ export default function MonthCalendar({ selectedDate, onSelectDate, refreshKey =
 
   return (
     <div ref={containerRef} className="bg-white rounded-lg border border-gray-200 h-full flex flex-col relative">
-      {/* 헤더 */}
       <div className="flex items-center justify-between p-4 border-b border-gray-100">
         <div className="flex items-center gap-2">
           <button onClick={prevMonth} className="p-1.5 hover:bg-gray-100 rounded-lg" aria-label="이전 달">
