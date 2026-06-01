@@ -8,12 +8,16 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "cross-env NODE_ENV=test node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "migrate": "node-pg-migrate -j sql -m migrations",
+    "migrate:up": "node-pg-migrate -j sql -m migrations up",
+    "migrate:down": "node-pg-migrate -j sql -m migrations down"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "helmet": "^8.0.0",
+    "node-pg-migrate": "^7.0.0",
     "pg": "^8.13.0"
   },
   "devDependencies": {

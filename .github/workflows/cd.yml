@@ -8,7 +8,6 @@ on:
 
 jobs:
   deploy:
-    # CI가 성공한 경우에만 실행
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: self-hosted
 
@@ -20,6 +19,10 @@ jobs:
       - name: Pull latest image
         working-directory: /home/ubuntu/study-tracker
         run: docker compose pull
+
+      - name: Run database migrations
+        working-directory: /home/ubuntu/study-tracker
+        run: docker compose run --rm api npm run migrate:up
 
       - name: Restart containers
         working-directory: /home/ubuntu/study-tracker

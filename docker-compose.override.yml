@@ -1,7 +1,8 @@
-# 로컬 개발 전용 설정
-# docker compose가 docker-compose.yml + override.yml을 자동 merge
-# 본인 로컬에서만 사용. git에 올림 (.gitignore 제외 안 함).
 services:
   api:
-    build: ./backend     # 로컬에서는 즉석 빌드
-    image: study-tracker-api:dev  # 로컬 빌드 결과 태그
+    build: ./backend
+    image: study-tracker-api:dev
+
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"   # 로컬에서만 접근 가능
