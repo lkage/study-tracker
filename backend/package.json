@@ -14,16 +14,19 @@
     "migrate:down": "node-pg-migrate -j sql -m migrations down"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.3",
     "node-pg-migrate": "^7.0.0",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "cross-env": "^7.0.3",
     "eslint": "^9.0.0",
-    "@eslint/js": "^9.0.0",
     "globals": "^15.0.0",
     "jest": "^29.7.0",
     "supertest": "^7.0.0"
