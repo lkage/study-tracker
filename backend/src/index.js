@@ -5,6 +5,7 @@ import { pool } from './lib/db.js';
 import authRouter from './routes/auth.js';
 import subjectsRouter from './routes/subjects.js';
 import sessionsRouter from './routes/sessions.js';
+import plansRouter from './routes/plans.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -33,6 +34,7 @@ app.get('/', (req, res) => {
 app.use('/auth', authRouter);
 app.use('/subjects', subjectsRouter);
 app.use('/sessions', sessionsRouter);
+app.use('/plans', plansRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
