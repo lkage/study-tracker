@@ -33,3 +33,6 @@ logs/
 # 임시 파일
 tmp/
 temp/
+
+# 로컬 개발 전용 override
+docker-compose.override.yml

@@ -1,8 +1,0 @@
-services:
-  api:
-    build: ./backend
-    image: study-tracker-api:dev
-
-  db:
-    ports:
-      - "127.0.0.1:5432:5432"   # 로컬에서만 접근 가능
