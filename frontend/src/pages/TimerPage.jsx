@@ -4,7 +4,28 @@ import { useTimerStore, useTimerElapsed } from '../store/timer.js';
 import { formatDuration } from '../utils/time.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
+function playGoalSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.25, 0.5].forEach((delay) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + delay);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + delay + 0.3);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.3);
+    });
+  } catch {
+    // ignore
+  }
+}
+
 export default function TimerPage() {
+  // ─── 모든 Hook 호출을 컴포넌트 최상단에 ───
   const navigate = useNavigate();
   const state = useTimerStore((s) => s.state);
   const pause = useTimerStore((s) => s.pause);
@@ -16,20 +37,37 @@ export default function TimerPage() {
 
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showGoalAlert, setShowGoalAlert] = useState(false);
+  const [goalNotified, setGoalNotified] = useState(() => {
+    if (!state) return false;
+    const before = state.accumulated_before_sec || 0;
+    return state.target_sec > 0 && before >= state.target_sec;
+  });
 
+  // state가 null일 수 있으니 안전한 계산
+  const accumulatedBefore = state?.accumulated_before_sec || 0;
+  const totalSec = accumulatedBefore + elapsedSec;
+  const isGoalReached = !!state && state.target_sec > 0 && totalSec >= state.target_sec;
+
+  // state 없으면 메인으로 (모든 hook 호출 후)
   useEffect(() => {
     if (!state) navigate('/', { replace: true });
   }, [state, navigate]);
 
+  // 목표 도달 알림 — 한 번만
+  useEffect(() => {
+    if (isGoalReached && !goalNotified) {
+      setGoalNotified(true);
+      setShowGoalAlert(true);
+      playGoalSound();
+    }
+  }, [isGoalReached, goalNotified]);
+
+  // ─── Early return은 모든 Hook 호출 후 ───
   if (!state) return null;
 
   const isPaused = !!state.paused_at;
   const isFocusLost = isPaused && state.pause_reason === 'focus_lost';
-
-  // 누적 = 이전 + 현재 세션
-  const accumulatedBefore = state.accumulated_before_sec || 0;
-  const totalSec = accumulatedBefore + elapsedSec;
-  const isGoalReached = state.target_sec > 0 && totalSec >= state.target_sec;
 
   const progress = state.target_sec > 0
     ? Math.min(100, (totalSec / state.target_sec) * 100)
@@ -145,6 +183,32 @@ export default function TimerPage() {
         <p className="mt-4 text-xs text-gray-400">
           누적 일시정지: {formatHMS(Math.floor(state.accumulated_pause_ms / 1000))}
         </p>
+      )}
+
+      {showGoalAlert && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 text-center">
+            <div className="text-5xl mb-3">🎯</div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">목표 시간 달성!</h2>
+            <p className="text-gray-600 mb-6">
+              <strong>{state.subject_name}</strong> 목표 시간 {formatDuration(state.target_sec)}을(를) 달성하셨습니다.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowGoalAlert(false)}
+                className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium"
+              >
+                더 학습
+              </button>
+              <button
+                onClick={() => { setShowGoalAlert(false); handleFinish(); }}
+                className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+              >
+                여기서 종료
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {confirmCancel && (
