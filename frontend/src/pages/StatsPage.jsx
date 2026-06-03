@@ -117,7 +117,7 @@ export default function StatsPage() {
     const labels = ['일', '월', '화', '수', '목', '금', '토'];
     return labels.map((day, i) => ({
       day,
-      avgMinutes: counts[i] > 0 ? Math.round(sums[i] / counts[i]) : 0,
+      avgMinutes: counts[i] > 0 ? sums[i] / counts[i] : 0,
     }));
   }, [dailyData]);
 
