@@ -17,7 +17,6 @@ export default function Layout() {
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const avatarRef = useRef(null);
 
-  // 아바타 외부 클릭 시 메뉴 닫기
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (avatarRef.current && !avatarRef.current.contains(e.target)) {
@@ -28,7 +27,6 @@ export default function Layout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ESC로 사이드바 닫기
   useEffect(() => {
     const handler = (e) => {
       if (e.key === 'Escape') {
@@ -50,14 +48,11 @@ export default function Layout() {
     navigate(path);
   };
 
-  // 이니셜 (닉네임 첫 글자)
   const initial = user?.nickname?.charAt(0) || '?';
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      {/* 상단 헤더 */}
       <header className="bg-white border-b border-gray-200 h-14 flex items-center justify-between px-4 sticky top-0 z-30">
-        {/* 좌측: 햄버거 + 로고 */}
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSidebarOpen(true)}
@@ -75,7 +70,6 @@ export default function Layout() {
           </Link>
         </div>
 
-        {/* 우측: 아바타 */}
         <div className="relative" ref={avatarRef}>
           <button
             onClick={() => setAvatarMenuOpen(!avatarMenuOpen)}
@@ -91,9 +85,16 @@ export default function Layout() {
                 <p className="font-medium text-gray-900 text-sm truncate">{user?.nickname}</p>
                 <p className="text-xs text-gray-500 truncate">{user?.email}</p>
               </div>
+              <Link
+                to="/profile"
+                onClick={() => setAvatarMenuOpen(false)}
+                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                프로필 설정
+              </Link>
               <button
                 onClick={handleLogout}
-                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 border-t border-gray-100"
               >
                 로그아웃
               </button>
@@ -102,15 +103,12 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* 사이드바 (오버레이) */}
       {sidebarOpen && (
         <>
-          {/* 백드롭 */}
           <div
             className="fixed inset-0 bg-black/30 z-40"
             onClick={() => setSidebarOpen(false)}
           />
-          {/* 슬라이드 패널 */}
           <aside className="fixed top-0 left-0 h-full w-64 bg-white shadow-xl z-50 flex flex-col animate-slide-in">
             <div className="h-14 flex items-center justify-between px-4 border-b border-gray-200">
               <span className="font-semibold text-gray-900">메뉴</span>
@@ -149,7 +147,6 @@ export default function Layout() {
         </>
       )}
 
-      {/* 콘텐츠 */}
       <main className="flex-1">
         <Outlet />
       </main>

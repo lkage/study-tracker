@@ -12,6 +12,7 @@ import SubjectsPage from './pages/SubjectsPage.jsx';
 import TimerPage from './pages/TimerPage.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import Layout from './components/Layout.jsx';
+import ProfilePage from './pages/ProfilePage.jsx';
 
 function App() {
   const hydrate = useAuthStore((s) => s.hydrate);
@@ -49,6 +50,7 @@ function App() {
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/stats" element={<StatsPage />} />
           <Route path="/subjects" element={<SubjectsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

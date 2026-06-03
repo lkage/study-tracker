@@ -3,10 +3,10 @@ import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { query } from '../lib/db.js';
 import { signToken } from '../lib/jwt.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// 입력 스키마 (zod로 검증)
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(100),
@@ -18,9 +18,17 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const updateProfileSchema = z.object({
+  nickname: z.string().min(1).max(50),
+});
+
+const changePasswordSchema = z.object({
+  current_password: z.string().min(1),
+  new_password: z.string().min(8).max(100),
+});
+
 // POST /auth/register
 router.post('/register', async (req, res) => {
-  // 입력 검증
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
@@ -28,16 +36,12 @@ router.post('/register', async (req, res) => {
   const { email, password, nickname } = parsed.data;
 
   try {
-    // 이메일 중복 체크
     const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    // 비밀번호 해시
     const hashed = await bcrypt.hash(password, 10);
-
-    // DB 저장
     const result = await query(
       'INSERT INTO users (email, password, nickname) VALUES ($1, $2, $3) RETURNING id, email, nickname',
       [email, hashed, nickname]
@@ -87,9 +91,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET /auth/me — 현재 사용자 정보 (보호됨, 미들웨어는 index.js에서 적용)
-import { requireAuth } from '../middleware/auth.js';
-
+// GET /auth/me
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const result = await query(
@@ -103,6 +105,58 @@ router.get('/me', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Get me error:', err);
     res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+// PATCH /auth/me — 닉네임 변경
+router.patch('/me', requireAuth, async (req, res) => {
+  const parsed = updateProfileSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+  }
+  const { nickname } = parsed.data;
+
+  try {
+    const result = await query(
+      'UPDATE users SET nickname = $1 WHERE id = $2 RETURNING id, email, nickname',
+      [nickname, req.userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ user: result.rows[0] });
+  } catch (err) {
+    console.error('Update profile error:', err);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// POST /auth/password — 비밀번호 변경
+router.post('/password', requireAuth, async (req, res) => {
+  const parsed = changePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+  }
+  const { current_password, new_password } = parsed.data;
+
+  try {
+    const result = await query('SELECT password FROM users WHERE id = $1', [req.userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const valid = await bcrypt.compare(current_password, result.rows[0].password);
+    if (!valid) {
+      return res.status(400).json({ error: '현재 비밀번호가 일치하지 않습니다' });
+    }
+
+    const hashed = await bcrypt.hash(new_password, 10);
+    await query('UPDATE users SET password = $1 WHERE id = $2', [hashed, req.userId]);
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Failed to change password' });
   }
 });
 
