@@ -121,11 +121,10 @@ export default function TimerPage() {
         .find((p) => (actualBySub[p.subject_id] || 0) < p.target_sec);
 
       if (!nextPlan) {
-        // 다음 plan 없음 → 일반 종료
-        await finishAndSave();
-        alert('🎉 오늘 남은 미달성 과목이 없습니다!');
-        navigate('/', { replace: true });
-        return;
+        // 다음 plan 없음 →  동작선택
+	alert('🎉 오늘 남은 미달성 과목이 없습니다! 현재 학습을 계속하거나 종료 버튼으로 마무리하세요.');
+	setBusy(null);
+	return;
       }
 
       // 3. atomic 호출 — state가 null 되는 순간 없음
