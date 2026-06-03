@@ -1,5 +1,16 @@
-// 초 → "1:30" (1시간 30분), "0:45" (45분)
+// 초 → "1시간 30분", "30분", "45초" (자연어 표시용)
 export function formatDuration(sec) {
+  if (!sec || sec <= 0) return '0분';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h > 0 && m > 0) return `${h}시간 ${m}분`;
+  if (h > 0) return `${h}시간`;
+  if (m > 0) return `${m}분`;
+  return `${sec}초`;
+}
+
+// 초 → "1:30" (편집 input 초기값 등 컴팩트 형식)
+export function formatDurationCompact(sec) {
   if (!sec || sec <= 0) return '0:00';
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);

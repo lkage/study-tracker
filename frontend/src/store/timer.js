@@ -18,21 +18,46 @@ const save = (state) => {
   else localStorage.removeItem(STORAGE_KEY);
 };
 
+// 현재 세션을 백엔드에 저장. 저장하지 않을 만한 짧은 세션이면 null 반환.
+async function saveCurrentToBackend(current) {
+  const endTime = current.paused_at ? new Date(current.paused_at) : new Date();
+  const totalMs = endTime.getTime() - new Date(current.started_at).getTime();
+  const actualMs = totalMs - current.accumulated_pause_ms;
+
+  if (actualMs < 1000) return null;
+
+  const adjustedEndedAt = new Date(
+    new Date(current.started_at).getTime() + actualMs
+  ).toISOString();
+
+  const res = await createSession({
+    subject_id: current.subject_id,
+    started_at: current.started_at,
+    ended_at: adjustedEndedAt,
+    memo: '',
+  });
+  return res.data.session;
+}
+
+function buildNewState(subject, target_sec, accumulated_before_sec) {
+  return {
+    subject_id: subject.id,
+    subject_name: subject.name,
+    subject_color: subject.color,
+    target_sec: target_sec || 0,
+    accumulated_before_sec: accumulated_before_sec || 0,
+    started_at: new Date().toISOString(),
+    paused_at: null,
+    pause_reason: null,
+    accumulated_pause_ms: 0,
+  };
+}
+
 export const useTimerStore = create((set, get) => ({
   state: load(),
 
   start: (subject, target_sec, accumulated_before_sec = 0) => {
-    const newState = {
-      subject_id: subject.id,
-      subject_name: subject.name,
-      subject_color: subject.color,
-      target_sec: target_sec || 0,
-      accumulated_before_sec: accumulated_before_sec,
-      started_at: new Date().toISOString(),
-      paused_at: null,
-      pause_reason: null,
-      accumulated_pause_ms: 0,
-    };
+    const newState = buildNewState(subject, target_sec, accumulated_before_sec);
     save(newState);
     set({ state: newState });
   },
@@ -40,8 +65,9 @@ export const useTimerStore = create((set, get) => ({
   pause: (reason = 'manual') => {
     const prev = get().state;
     if (!prev || prev.paused_at) return;
-    save({ ...prev, paused_at: new Date().toISOString(), pause_reason: reason });
-    set({ state: { ...prev, paused_at: new Date().toISOString(), pause_reason: reason } });
+    const next = { ...prev, paused_at: new Date().toISOString(), pause_reason: reason };
+    save(next);
+    set({ state: next });
   },
 
   resume: () => {
@@ -61,34 +87,33 @@ export const useTimerStore = create((set, get) => ({
   finishAndSave: async () => {
     const current = get().state;
     if (!current) return null;
-
-    const endTime = current.paused_at ? new Date(current.paused_at) : new Date();
-    const totalMs = endTime.getTime() - new Date(current.started_at).getTime();
-    const actualMs = totalMs - current.accumulated_pause_ms;
-
-    if (actualMs < 1000) {
-      save(null);
-      set({ state: null });
-      return null;
-    }
-
-    const adjustedEndedAt = new Date(
-      new Date(current.started_at).getTime() + actualMs
-    ).toISOString();
-
     try {
-      const res = await createSession({
-        subject_id: current.subject_id,
-        started_at: current.started_at,
-        ended_at: adjustedEndedAt,
-        memo: '',
-      });
+      const session = await saveCurrentToBackend(current);
       save(null);
       set({ state: null });
-      return res.data.session;
+      return session;
     } catch (err) {
       throw err;
     }
+  },
+
+  // 현재 세션 저장 + 새 타이머 시작을 atomic하게 (state가 null이 되는 순간 없음)
+  finishAndStartNext: async (nextSubject, target_sec, accumulated_before_sec) => {
+    const current = get().state;
+    if (!current) return null;
+
+    // 1. 현재 세션 백엔드 저장 (state는 아직 그대로)
+    try {
+      await saveCurrentToBackend(current);
+    } catch (err) {
+      throw err;
+    }
+
+    // 2. 새 state로 교체 (state가 null 되는 순간 없음)
+    const newState = buildNewState(nextSubject, target_sec, accumulated_before_sec);
+    save(newState);
+    set({ state: newState });
+    return newState;
   },
 
   cancel: () => {

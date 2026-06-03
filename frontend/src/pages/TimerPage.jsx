@@ -1,7 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useTimerStore, useTimerElapsed } from '../store/timer.js';
-import { formatDuration } from '../utils/time.js';
+import { listPlans } from '../api/plans.js';
+import { listSessions } from '../api/sessions.js';
+import { formatDuration, toDateString } from '../utils/time.js';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
 function playGoalSound() {
@@ -25,36 +27,40 @@ function playGoalSound() {
 }
 
 export default function TimerPage() {
-  // ─── 모든 Hook 호출을 컴포넌트 최상단에 ───
   const navigate = useNavigate();
   const state = useTimerStore((s) => s.state);
   const pause = useTimerStore((s) => s.pause);
   const resume = useTimerStore((s) => s.resume);
   const finishAndSave = useTimerStore((s) => s.finishAndSave);
+  const finishAndStartNext = useTimerStore((s) => s.finishAndStartNext);
   const cancel = useTimerStore((s) => s.cancel);
 
   const elapsedSec = useTimerElapsed();
 
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(null);
   const [showGoalAlert, setShowGoalAlert] = useState(false);
-  const [goalNotified, setGoalNotified] = useState(() => {
-    if (!state) return false;
-    const before = state.accumulated_before_sec || 0;
-    return state.target_sec > 0 && before >= state.target_sec;
-  });
+  const [goalNotified, setGoalNotified] = useState(false);
 
-  // state가 null일 수 있으니 안전한 계산
-  const accumulatedBefore = state?.accumulated_before_sec || 0;
-  const totalSec = accumulatedBefore + elapsedSec;
-  const isGoalReached = !!state && state.target_sec > 0 && totalSec >= state.target_sec;
-
-  // state 없으면 메인으로 (모든 hook 호출 후)
   useEffect(() => {
     if (!state) navigate('/', { replace: true });
   }, [state, navigate]);
 
-  // 목표 도달 알림 — 한 번만
+  useEffect(() => {
+    if (!state) {
+      setGoalNotified(false);
+      return;
+    }
+    const before = state.accumulated_before_sec || 0;
+    setGoalNotified(state.target_sec > 0 && before >= state.target_sec);
+    setShowGoalAlert(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.started_at]);
+
+  const accumulatedBefore = state?.accumulated_before_sec || 0;
+  const totalSec = accumulatedBefore + elapsedSec;
+  const isGoalReached = !!state && state.target_sec > 0 && totalSec >= state.target_sec;
+
   useEffect(() => {
     if (isGoalReached && !goalNotified) {
       setGoalNotified(true);
@@ -63,24 +69,75 @@ export default function TimerPage() {
     }
   }, [isGoalReached, goalNotified]);
 
-  // ─── Early return은 모든 Hook 호출 후 ───
   if (!state) return null;
 
   const isPaused = !!state.paused_at;
   const isFocusLost = isPaused && state.pause_reason === 'focus_lost';
-
   const progress = state.target_sec > 0
     ? Math.min(100, (totalSec / state.target_sec) * 100)
     : 0;
 
   const handleFinish = async () => {
-    setSaving(true);
+    setBusy('finish');
     try {
       await finishAndSave();
       navigate('/', { replace: true });
     } catch (err) {
       alert('저장 실패: ' + (err.response?.data?.error || err.message));
-      setSaving(false);
+      setBusy(null);
+    }
+  };
+
+  const handleFinishAndNext = async () => {
+    setBusy('next');
+    try {
+      const currentSubjectId = state.subject_id;
+
+      // 1. plans + sessions 조회 (현재 세션은 아직 저장 전)
+      const todayStr = toDateString(new Date());
+      const dayStart = new Date(todayStr + 'T00:00:00');
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      const [plansRes, sessionsRes] = await Promise.all([
+        listPlans({ date: todayStr }),
+        listSessions({
+          from: dayStart.toISOString(),
+          to: dayEnd.toISOString(),
+        }),
+      ]);
+
+      const todayPlans = plansRes.data.plans;
+      const todaySessions = sessionsRes.data.sessions;
+
+      const actualBySub = {};
+      todaySessions.forEach((s) => {
+        actualBySub[s.subject_id] = (actualBySub[s.subject_id] || 0) + s.duration_sec;
+      });
+
+      // 2. 현재 과목 제외, 미달성 plan 첫 번째
+      const nextPlan = todayPlans
+        .filter((p) => p.subject_id !== currentSubjectId)
+        .find((p) => (actualBySub[p.subject_id] || 0) < p.target_sec);
+
+      if (!nextPlan) {
+        // 다음 plan 없음 → 일반 종료
+        await finishAndSave();
+        alert('🎉 오늘 남은 미달성 과목이 없습니다!');
+        navigate('/', { replace: true });
+        return;
+      }
+
+      // 3. atomic 호출 — state가 null 되는 순간 없음
+      await finishAndStartNext(
+        { id: nextPlan.subject_id, name: nextPlan.subject_name, color: nextPlan.subject_color },
+        nextPlan.target_sec,
+        actualBySub[nextPlan.subject_id] || 0
+      );
+      setBusy(null);
+    } catch (err) {
+      alert('처리 실패: ' + (err.response?.data?.error || err.message));
+      setBusy(null);
     }
   };
 
@@ -147,34 +204,44 @@ export default function TimerPage() {
         </div>
       )}
 
-      <div className="flex gap-4">
+      <div className="flex gap-3 flex-wrap justify-center">
         {isPaused ? (
           <button
             onClick={resume}
-            className="px-8 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-lg shadow-sm"
+            disabled={busy !== null}
+            className="px-6 py-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 font-medium text-lg shadow-sm"
           >
             ▶ 재개
           </button>
         ) : (
           <button
             onClick={() => pause('manual')}
-            className="px-8 py-4 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 font-medium text-lg"
+            disabled={busy !== null}
+            className="px-6 py-4 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 disabled:opacity-50 font-medium text-lg"
           >
             ⏸ 일시정지
           </button>
         )}
         <button
           onClick={handleFinish}
-          disabled={saving || elapsedSec < 1}
-          className="px-8 py-4 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 font-medium text-lg shadow-sm"
+          disabled={busy !== null || elapsedSec < 1}
+          className="px-6 py-4 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 font-medium text-lg shadow-sm"
         >
-          {saving ? '저장 중...' : '■ 종료'}
+          {busy === 'finish' ? '저장 중...' : '■ 종료'}
+        </button>
+        <button
+          onClick={handleFinishAndNext}
+          disabled={busy !== null || elapsedSec < 1}
+          className="px-6 py-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 font-medium text-lg shadow-sm"
+        >
+          {busy === 'next' ? '처리 중...' : '⏭ 다음 과목으로'}
         </button>
       </div>
 
       <button
         onClick={() => setConfirmCancel(true)}
-        className="mt-10 text-sm text-gray-500 hover:text-gray-700"
+        disabled={busy !== null}
+        className="mt-10 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
       >
         타이머 취소 (저장 안 함)
       </button>
@@ -193,18 +260,26 @@ export default function TimerPage() {
             <p className="text-gray-600 mb-6">
               <strong>{state.subject_name}</strong> 목표 시간 {formatDuration(state.target_sec)}을(를) 달성하셨습니다.
             </p>
-            <div className="flex gap-3">
+            <div className="grid grid-cols-1 gap-2">
               <button
-                onClick={() => setShowGoalAlert(false)}
-                className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium"
+                onClick={() => { setShowGoalAlert(false); handleFinishAndNext(); }}
+                disabled={busy !== null}
+                className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 font-medium"
               >
-                더 학습
+                ⏭ 다음 과목으로
               </button>
               <button
                 onClick={() => { setShowGoalAlert(false); handleFinish(); }}
-                className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                disabled={busy !== null}
+                className="px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 font-medium"
               >
                 여기서 종료
+              </button>
+              <button
+                onClick={() => setShowGoalAlert(false)}
+                className="px-4 py-2.5 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium"
+              >
+                더 학습
               </button>
             </div>
           </div>

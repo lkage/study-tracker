@@ -1,12 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { formatDuration, parseDuration } from '../utils/time.js';
+import { formatDuration, formatDurationCompact, parseDuration } from '../utils/time.js';
 
 /**
- * 클릭하면 H:MM 형식으로 인라인 편집 가능한 시간 표시.
- * props:
- *   value: number (초). null/0이면 "미설정"
- *   onChange: (newSec | null) => Promise<void>   null이면 삭제 의미
- *   disabled: boolean
+ * 표시는 "1시간 30분", 편집 input은 "H:MM" 형식
  */
 export default function InlineTimeEdit({ value, onChange, disabled = false }) {
   const [editing, setEditing] = useState(false);
@@ -24,7 +20,7 @@ export default function InlineTimeEdit({ value, onChange, disabled = false }) {
 
   const startEdit = () => {
     if (disabled) return;
-    setInput(value && value > 0 ? formatDuration(value) : '');
+    setInput(value && value > 0 ? formatDurationCompact(value) : '');
     setError('');
     setEditing(true);
   };
@@ -38,7 +34,6 @@ export default function InlineTimeEdit({ value, onChange, disabled = false }) {
     setError('');
     const trimmed = input.trim();
 
-    // 빈 입력 → 삭제
     if (!trimmed) {
       setSaving(true);
       try {
@@ -54,7 +49,7 @@ export default function InlineTimeEdit({ value, onChange, disabled = false }) {
 
     const sec = parseDuration(trimmed);
     if (sec === null) {
-      setError('H:MM 형식 (예: 1:30)');
+      setError('형식 오류 (예: 1:30)');
       return;
     }
 
@@ -94,6 +89,7 @@ export default function InlineTimeEdit({ value, onChange, disabled = false }) {
             error ? 'border-red-400' : 'border-gray-300'
           }`}
         />
+        <span className="text-xs text-gray-400">시:분</span>
         {error && <span className="text-xs text-red-600">{error}</span>}
       </div>
     );

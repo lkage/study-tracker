@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSubjectsStore } from '../store/subjects.js';
 import { listPlans, upsertPlan, deletePlan, reorderPlans } from '../api/plans.js';
-import { listSessions } from '../api/sessions.js';
+import { listSessions, deleteSession } from '../api/sessions.js';
 import { useTimerStore } from '../store/timer.js';
 import { formatDuration, formatDateKorean, toDateString } from '../utils/time.js';
 import InlineTimeEdit from './InlineTimeEdit.jsx';
 import PlanAddModal from './PlanAddModal.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import DeletePlanDialog from './DeletePlanDialog.jsx';
 
 export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 }) {
   const navigate = useNavigate();
@@ -20,8 +21,9 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
   const [loading, setLoading] = useState(true);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [confirmCopyOpen, setConfirmCopyOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [reorderMode, setReorderMode] = useState(false);
+  const [editMode, setEditMode] = useState(false);
 
   const dateStr = toDateString(selectedDate);
   const today = toDateString(new Date());
@@ -38,7 +40,6 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
   const loadData = async () => {
     setLoading(true);
     try {
-      // 로컬 시간 기준 그 날 00:00 ~ 다음날 00:00 을 UTC로 변환해서 쿼리
       const dayStart = new Date(dateStr + 'T00:00:00');
       const dayEnd = new Date(dayStart);
       dayEnd.setDate(dayEnd.getDate() + 1);
@@ -123,6 +124,34 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
     onDataChange?.();
   };
 
+  const handleDeleteConfirm = async (mode) => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
+
+    try {
+      const deleteSessionsForTarget = async () => {
+        const targetSessions = sessions.filter((s) => s.subject_id === target.subject_id);
+        await Promise.all(targetSessions.map((s) => deleteSession(s.id)));
+      };
+
+      if (mode === 'plan') {
+        await deletePlan(target.subject_id, dateStr);
+      } else if (mode === 'sessions') {
+        await deleteSessionsForTarget();
+      } else if (mode === 'both') {
+        const tasks = [];
+        if (target.hasPlan) tasks.push(deletePlan(target.subject_id, dateStr));
+        if (target.actualSec > 0) tasks.push(deleteSessionsForTarget());
+        await Promise.all(tasks);
+      }
+      await loadData();
+      onDataChange?.();
+    } catch (err) {
+      alert(err.response?.data?.error || '삭제 실패');
+    }
+  };
+
   const handleStart = (row) => {
     if (timerState) {
       if (confirm('이미 진행 중인 타이머가 있습니다. 그쪽으로 이동하시겠습니까?')) {
@@ -140,7 +169,12 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
 
   const handleStartAll = () => {
     if (planRows.length === 0) return;
-    handleStart(planRows[0]);
+    const firstIncomplete = planRows.find((r) => r.actual_sec < r.target_sec);
+    if (!firstIncomplete) {
+      alert('🎉 오늘의 모든 목표를 이미 달성했습니다!');
+      return;
+    }
+    handleStart(firstIncomplete);
   };
 
   const handleCopyToToday = async () => {
@@ -158,6 +192,14 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
   };
 
   const hasAnyPlan = planRows.length > 0;
+  const trashIcon = (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="3 6 5 6 21 6"/>
+      <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
+      <line x1="10" y1="11" x2="10" y2="17"/>
+      <line x1="14" y1="11" x2="14" y2="17"/>
+    </svg>
+  );
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200">
@@ -177,15 +219,15 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
           </div>
 
           <div className="flex items-center gap-1 flex-shrink-0">
-            {planRows.length >= 2 && !isPast && (
+            {displayRows.length >= 1 && !isPast && (
               <button
-                onClick={() => setReorderMode(!reorderMode)}
-                className={`px-2 py-1.5 text-sm rounded transition-colors ${
-                  reorderMode ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                onClick={() => setEditMode(!editMode)}
+                className={`px-3 py-1.5 text-sm rounded transition-colors ${
+                  editMode ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
                 }`}
-                title="순서 변경"
+                title="편집"
               >
-                {reorderMode ? '완료' : '⇅'}
+                {editMode ? '완료' : '편집'}
               </button>
             )}
             {!isPast && (
@@ -252,28 +294,64 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
                       </span>
                     )}
 
-                    {reorderMode && row.hasPlan ? (
-                      <div className="flex gap-0.5">
+                    {/* plan 행 + 편집모드: ↑↓🗑️ */}
+                    {editMode && row.hasPlan && (
+                      <div className="flex gap-0.5 items-center">
+                        {planRows.length >= 2 && (
+                          <>
+                            <button
+                              onClick={() => movePlan(planIndex, -1)}
+                              disabled={planIndex === 0}
+                              className="px-1.5 py-0.5 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-30 disabled:hover:bg-gray-100"
+                              title="위로"
+                            >↑</button>
+                            <button
+                              onClick={() => movePlan(planIndex, 1)}
+                              disabled={planIndex === planRows.length - 1}
+                              className="px-1.5 py-0.5 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-30 disabled:hover:bg-gray-100"
+                              title="아래로"
+                            >↓</button>
+                          </>
+                        )}
                         <button
-                          onClick={() => movePlan(planIndex, -1)}
-                          disabled={planIndex === 0}
-                          className="px-1.5 py-0.5 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-30 disabled:hover:bg-gray-100"
-                        >↑</button>
-                        <button
-                          onClick={() => movePlan(planIndex, 1)}
-                          disabled={planIndex === planRows.length - 1}
-                          className="px-1.5 py-0.5 text-sm bg-gray-100 hover:bg-gray-200 rounded disabled:opacity-30 disabled:hover:bg-gray-100"
-                        >↓</button>
-                      </div>
-                    ) : (
-                      !reorderMode && isToday && row.hasPlan && (
-                        <button
-                          onClick={() => handleStart(row)}
-                          className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                          onClick={() => setDeleteTarget({
+                            subject_id: row.subject_id,
+                            name: row.name,
+                            actualSec: row.actual_sec,
+                            hasPlan: true,
+                          })}
+                          className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded ml-1"
+                          title="삭제"
                         >
-                          시작
+                          {trashIcon}
                         </button>
-                      )
+                      </div>
+                    )}
+
+                    {/* 기록만 행 + 편집모드: 🗑️ */}
+                    {editMode && !row.hasPlan && (
+                      <button
+                        onClick={() => setDeleteTarget({
+                          subject_id: row.subject_id,
+                          name: row.name,
+                          actualSec: row.actual_sec,
+                          hasPlan: false,
+                        })}
+                        className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                        title="세션 삭제"
+                      >
+                        {trashIcon}
+                      </button>
+                    )}
+
+                    {/* 일반 모드: plan 행에만 시작 버튼 */}
+                    {!editMode && isToday && row.hasPlan && (
+                      <button
+                        onClick={() => handleStart(row)}
+                        className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        시작
+                      </button>
                     )}
                   </div>
 
@@ -284,7 +362,7 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
                         <InlineTimeEdit
                           value={row.target_sec}
                           onChange={(sec) => handleInlineSave(row.subject_id, sec)}
-                          disabled={isPast || reorderMode}
+                          disabled={isPast || editMode}
                         />
                       </span>
                     ) : (
@@ -352,6 +430,27 @@ export default function DayPanel({ selectedDate, onDataChange, refreshKey = 0 })
           confirmText="복사"
           onConfirm={handleCopyToToday}
           onCancel={() => setConfirmCopyOpen(false)}
+        />
+      )}
+
+      {/* 삭제 다이얼로그 — plan 유무에 따라 분기 */}
+      {deleteTarget && deleteTarget.hasPlan && (
+        <DeletePlanDialog
+          name={deleteTarget.name}
+          actualSec={deleteTarget.actualSec}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleDeleteConfirm}
+        />
+      )}
+
+      {deleteTarget && !deleteTarget.hasPlan && (
+        <ConfirmDialog
+          title="세션 삭제"
+          message={`${deleteTarget.name}의 오늘 ${formatDuration(deleteTarget.actualSec)} 학습 기록을 삭제합니다. 이 작업은 되돌릴 수 없습니다.`}
+          confirmText="삭제"
+          danger
+          onConfirm={() => handleDeleteConfirm('sessions')}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>
